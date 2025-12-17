@@ -3,6 +3,9 @@ from datetime import datetime
 import shutil
 
 
+SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+
+
 def today_folder() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
@@ -11,6 +14,22 @@ def ensure_dirs(base: Path):
     (base / "images").mkdir(exist_ok=True)
     (base / "originals").mkdir(exist_ok=True)
     (base / "no-bg").mkdir(exist_ok=True)
+
+
+def list_valid_images(images_dir: Path) -> list[Path]:
+    valid_images = []
+
+    for file in images_dir.iterdir():
+        if (
+            file.is_file()
+            and not file.name.startswith(".")
+            and file.suffix.lower() in SUPPORTED_EXTENSIONS
+        ):
+            valid_images.append(file)
+        else:
+            print(f"⏭ Skipping non-image file: {file.name}")
+
+    return valid_images
 
 
 def move_original(image_path: Path, base: Path) -> Path:
@@ -34,5 +53,3 @@ def no_bg_output_path(base: Path, original_name: str) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
 
     return target_dir / output_no_bg_name(original_name)
-
-

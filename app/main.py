@@ -1,11 +1,16 @@
 import argparse
 from pathlib import Path
 
-from app.fs import ensure_dirs, move_original, no_bg_output_path
+from app.fs import (
+    ensure_dirs,
+    move_original,
+    no_bg_output_path,
+    list_valid_images
+)
 from app.processor import (
     remove_bg_ai,
     remove_bg_color,
-    looks_like_solid_background,
+    looks_like_solid_background
 )
 
 
@@ -16,10 +21,9 @@ def main():
 
     parser.add_argument(
         "--type",
-        choices=["ai", "color"],
-        required=False,
-        help="Force background removal strategy (ai or color). "
-             "If omitted, AUTO mode is used."
+        choices=["auto", "ai", "color"],
+        default="auto",
+        help="Background removal strategy (default: auto)"
     )
 
     args = parser.parse_args()
@@ -27,35 +31,33 @@ def main():
     base = Path(__file__).parent
     images_dir = base / "images"
 
+    print("🖼 Starting background removal")
+    print(f"⚙ Strategy: {args.type.upper()}")
+
     ensure_dirs(base)
 
-    images = [p for p in images_dir.iterdir() if p.is_file()]
+    images = list_valid_images(images_dir)
 
     if not images:
-        print("⚠️ No images found in images/ folder")
+        print("⚠ No valid images found in images/ folder")
         return
 
-    strategy = args.type or "auto"
-
-    print(f"🖼️ Found {len(images)} image(s)")
-    print(f"⚙️ Strategy: {strategy.upper()}")
+    print(f"📂 Found {len(images)} valid image(s)")
 
     for image in images:
         try:
-            print(f"\n➡️ Processing {image.name}")
+            print(f"\n➡ Processing {image.name}")
 
             original = move_original(image, base)
             output = no_bg_output_path(base, original.name)
 
             if args.type == "color":
-                print("🎨 Forced COLOR strategy")
                 remove_bg_color(original, output)
 
             elif args.type == "ai":
-                print("🤖 Forced AI strategy")
                 remove_bg_ai(original, output)
 
-            else:
+            else:  # AUTO
                 print("🧠 AUTO mode enabled")
 
                 if looks_like_solid_background(original):
