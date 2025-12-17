@@ -105,9 +105,20 @@ poetry run rmbg --type color
 
 ---
 
-## 🧠 AUTO Strategy Explained
+### 🔹 Force specific background color
+```bash
+poetry run rmbg --type color --color white
+poetry run rmbg --type color --color "#f5f5f5"
+```
 
-In AUTO mode, the tool:
+### 🔹 Adjust color tolerance
+```bash
+poetry run rmbg --type color --tolerance 25
+```
+
+##  AUTO Strategy Explained
+
+In AUTO mode, the tool :
 
 1. Samples pixels from the image
 2. Detects if the background is mostly white
@@ -117,6 +128,15 @@ In AUTO mode, the tool:
    * 🤖 AI strategy for complex backgrounds
 
 This improves performance and avoids unnecessary AI processing.
+
+## 🧠 AUTO Mode Logic
+
+```yaml
+AUTO:
+ ├─ Solid / bright background?
+ │   ├─ Yes → Detect color → COLOR
+ │   └─ No  → AI (rembg)
+```
 
 ---
 
