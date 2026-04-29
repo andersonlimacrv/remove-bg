@@ -14,6 +14,7 @@ def ensure_dirs(base: Path):
     (base / "images").mkdir(exist_ok=True)
     (base / "originals").mkdir(exist_ok=True)
     (base / "no-bg").mkdir(exist_ok=True)
+    (base / "compressed").mkdir(exist_ok=True)
 
 
 def list_valid_images(images_dir: Path) -> list[Path]:
@@ -53,3 +54,13 @@ def no_bg_output_path(base: Path, original_name: str) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
 
     return target_dir / output_no_bg_name(original_name)
+
+
+def compressed_output_path(base: Path, original_name: str, ext: str) -> Path:
+    date = today_folder()
+    target_dir = base / "compressed" / date
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    stem = Path(original_name).stem
+    new_name = f"{stem}{ext}" if ext.startswith('.') else f"{stem}.{ext}"
+    return target_dir / new_name

@@ -148,6 +148,60 @@ AUTO:
 
 ---
 
+## 🗜️ Image Compression
+
+The `remove-bg` tool now includes an image compression module, providing smart compression and analysis without heavy dependencies.
+
+### 🔹 Analyze Images (anlz-cmpss)
+
+Analyze images in the `images/` folder to get compression suggestions without modifying any files. This is great for checking which strategy will be best, especially for AI-generated images.
+
+```bash
+poetry run anlz-cmpss
+```
+
+**Example Output:**
+```text
+🔍 avatar.png
+- No transparency
+- Medium complexity
+→ Suggest: WEBP (quality=80)
+→ Expected reduction: ~60-80%
+Trade-offs:
+- Slight loss in sharp edges possible
+- Much smaller size
+```
+
+### 🔹 Compress Images (cmpss)
+
+Compress images using the suggested strategies or force a specific format.
+
+```bash
+# Auto mode (chooses best format based on heuristics)
+poetry run cmpss
+
+# Force keeping the original format (no conversion)
+poetry run cmpss --keep-format
+
+# Force conversion to a specific format
+poetry run cmpss --format webp
+
+# Adjust quality (lossy formats)
+poetry run cmpss --quality 75
+
+# Force lossless compression
+poetry run cmpss --lossless
+```
+
+**Format Conversion Priority:**
+1. `--keep-format`: ALWAYS preserves the original extension.
+2. `--format X`: Forces conversion to format X.
+3. No arguments: Automatically decides based on heuristics.
+
+**Note:** Files smaller than 50KB are automatically skipped to avoid unnecessary quality loss or size increases.
+
+---
+
 ## 🛠️ Tech Stack
 
 * Python

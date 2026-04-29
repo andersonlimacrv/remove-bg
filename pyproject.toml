@@ -16,6 +16,8 @@ dependencies = [
 
 [project.scripts]
 rmbg = "app.main:main"
+cmpss = "app.main:main_compress"
+anlz-cmpss = "app.main:main_analyze"
 
 [tool.poetry]
 packages = [{ include = "app" }]

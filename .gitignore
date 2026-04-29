@@ -52,8 +52,10 @@ Thumbs.db
 app/images/*
 app/originals/*
 app/no-bg/*
+app/compressed/*
 
 # Keep folders tracked
 !app/images/.gitkeep
 !app/originals/.gitkeep
 !app/no-bg/.gitkeep
+!app/compressed/.gitkeep
