@@ -15,7 +15,8 @@ from app.processor import (
     detect_background_color,
     looks_like_solid_background,
     analyze_image,
-    compress_image
+    compress_image,
+    format_avatar
 )
 
 
@@ -249,3 +250,75 @@ def main_analyze():
         except Exception as e:
             print(f"❌ Error analyzing {image.name}")
             print(f"   ↳ {e}\n")
+
+
+def main_format_avatar():
+    parser = argparse.ArgumentParser(
+        description="Format images to be avatars (< 1MB, standardized)"
+    )
+
+    parser.add_argument(
+        "--max-size",
+        type=int,
+        default=1000,
+        help="Maximum size in KB (default: 1000 = 1MB)",
+    )
+
+    parser.add_argument(
+        "--keep-format",
+        action="store_true",
+        help="Force keeping the original format",
+    )
+
+    args = parser.parse_args()
+
+    base = Path(__file__).parent
+    images_dir = base / "images"
+
+    ensure_dirs(base)
+
+    images = list_valid_images(images_dir)
+
+    if not images:
+        print("⚠️ No valid images found in app/images/")
+        return
+
+    print(f"🖼 Found {len(images)} image(s) for avatar formatting")
+
+    for image in images:
+        print(f"\n➡ Formatting {image.name} as Avatar")
+
+        try:
+            original = move_original(image, base)
+            
+            ext = original.suffix if args.keep_format else ".webp"
+            output = compressed_output_path(base, original.name, ext)
+            
+            res = format_avatar(original, output, max_size_kb=args.max_size, keep_format=args.keep_format)
+            
+            # Adjust output path if target format changed
+            final_ext = f".{res['target_format']}"
+            if output.suffix.lower() != final_ext:
+                new_output = output.with_suffix(final_ext)
+                output.rename(new_output)
+                output = new_output
+                
+            orig_kb = res['original_size'] / 1024
+            new_kb = res['new_size'] / 1024
+            pct = res['reduction_pct']
+            
+            print(f"📦 {original.name} → {output.name}")
+            if orig_kb > 1024:
+                print(f"📉 {orig_kb/1024:.1f}MB → {new_kb/1024:.1f}MB (-{pct:.0f}%)")
+            else:
+                print(f"📉 {orig_kb:.1f}KB → {new_kb:.1f}KB (-{pct:.0f}%)")
+            
+            resize_str = " (Resized to max 1024px)" if res['resized'] else ""
+            print(f"⚙️ Mode: Avatar Format | quality={res['quality']}{resize_str}")
+            print(f"✅ Saved: {output}")
+
+        except Exception as e:
+            print(f"❌ Error processing {image.name}")
+            print(f"   ↳ {e}")
+
+    print("\n🎉 All avatars formatted successfully")

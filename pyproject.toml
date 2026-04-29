@@ -18,6 +18,7 @@ dependencies = [
 rmbg = "app.main:main"
 cmpss = "app.main:main_compress"
 anlz-cmpss = "app.main:main_analyze"
+fmt-avt = "app.main:main_format_avatar"
 
 [tool.poetry]
 packages = [{ include = "app" }]

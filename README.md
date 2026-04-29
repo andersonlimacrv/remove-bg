@@ -200,6 +200,21 @@ poetry run cmpss --lossless
 
 **Note:** Files smaller than 50KB are automatically skipped to avoid unnecessary quality loss or size increases.
 
+### 🔹 Format Avatars (fmt-avt)
+
+Guarantees the image is formatted and compressed to fit under a specific size limit (default 1MB) and resizes it to a standard maximum dimension (1024px). Ideal for standardizing user avatars.
+
+```bash
+# Format to standard avatar size (< 1MB)
+poetry run fmt-avt
+
+# Set a custom max size (e.g., 500KB)
+poetry run fmt-avt --max-size 500
+
+# Force keeping the original format (prevents conversion to WebP)
+poetry run fmt-avt --keep-format
+```
+
 ---
 
 ## 🛠️ Tech Stack

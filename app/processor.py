@@ -201,3 +201,51 @@ def compress_image(input_path: Path, output_path: Path, format: str = None, qual
         "quality": quality,
         "orig_format": orig_format
     }
+
+
+def format_avatar(input_path: Path, output_path: Path, max_size_kb: int = 1000, keep_format: bool = False) -> dict:
+    original_size = os.path.getsize(input_path)
+    img = Image.open(input_path)
+    
+    # Avatar standard: maximum dimension 1024px to ensure it fits well and helps reduce size
+    max_dim = 1024
+    w, h = img.size
+    resized = False
+    if w > max_dim or h > max_dim:
+        img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+        resized = True
+        
+    orig_format = img.format.lower() if img.format else input_path.suffix.lstrip(".").lower()
+    if orig_format == "jpeg":
+        orig_format = "jpg"
+
+    target_format = orig_format if keep_format else "webp"
+    
+    # RGBA to RGB conversion if needed
+    if target_format in ("jpg", "jpeg") and img.mode in ("RGBA", "LA"):
+        background = Image.new("RGB", img.size, (255, 255, 255))
+        if len(img.split()) == 4:
+            background.paste(img, mask=img.split()[3])
+        else:
+            background.paste(img)
+        img = background
+    
+    quality = 90
+    while True:
+        save_kwargs = {"quality": quality}
+        img.save(output_path, format=target_format if target_format != "jpg" else "jpeg", **save_kwargs)
+        new_size = os.path.getsize(output_path)
+        
+        # Check if it fits under the limit or if we hit the quality floor
+        if new_size <= max_size_kb * 1024 or quality <= 10:
+            break
+        quality -= 10
+        
+    return {
+        "original_size": original_size,
+        "new_size": new_size,
+        "reduction_pct": ((original_size - new_size) / original_size) * 100 if original_size > 0 else 0,
+        "target_format": target_format,
+        "quality": quality,
+        "resized": resized
+    }
