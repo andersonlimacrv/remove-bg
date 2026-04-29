@@ -1,8 +1,32 @@
-# 🖼️ remove-bg
+# remove-bg 🔥
 
-A clean and script-friendly Python tool to remove image backgrounds automatically or using forced strategies.
+A lightweight, developer-first CLI to remove backgrounds and optimize images with zero friction.
+Process batches, auto-select strategies, compress intelligently — all locally, fast, and free.
 
-Designed for batch processing with clear logs, organized folders and zero cloud dependency.
+<p align="center">
+  <img src="logo.png" alt="remove-bg before/after logo" width="300" style="border-radius: 8px;">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12+-blue?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Poetry-Package%20Manager-blueviolet?logo=poetry&logoColor=white" alt="Poetry">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+</p>
+
+---
+
+## 📑 Table of Contents
+
+- [✨ Features](#-features)
+- [📁 Project Structure](#-project-structure)
+- [🚀 How It Works](#-how-it-works)
+- [🧰 Requirements](#-requirements)
+- [📦 Installation](#-installation)
+- [▶️ Usage](#️-usage)
+- [🗜️ Image Compression](#️-image-compression)
+- [🧪 Supported Formats](#-supported-formats)
+- [🛠️ Tech Stack](#️-tech-stack)
+- [📄 License](#-license)
 
 ---
 
@@ -219,10 +243,10 @@ poetry run fmt-avt --keep-format
 
 ## 🛠️ Tech Stack
 
-* Python
-* Poetry
-* Pillow
-* rembg
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Poetry](https://img.shields.io/badge/Poetry-white?style=for-the-badge&logo=poetry&logoColor=whit60A5FAe)
+![Pillow](https://img.shields.io/badge/Pillow-violet?style=for-the-badge)
+![rembg](https://img.shields.io/badge/rembg-green?style=for-the-badge)
 
 ---
 
