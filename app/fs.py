@@ -15,6 +15,7 @@ def ensure_dirs(base: Path):
     (base / "originals").mkdir(exist_ok=True)
     (base / "no-bg").mkdir(exist_ok=True)
     (base / "compressed").mkdir(exist_ok=True)
+    (base / "vectorized").mkdir(exist_ok=True)
 
 
 def list_valid_images(images_dir: Path) -> list[Path]:
@@ -64,3 +65,12 @@ def compressed_output_path(base: Path, original_name: str, ext: str) -> Path:
     stem = Path(original_name).stem
     new_name = f"{stem}{ext}" if ext.startswith('.') else f"{stem}.{ext}"
     return target_dir / new_name
+
+
+def vectorized_output_path(base: Path, original_name: str) -> Path:
+    date = today_folder()
+    target_dir = base / "vectorized" / date
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    stem = Path(original_name).stem
+    return target_dir / f"{stem}.svg"

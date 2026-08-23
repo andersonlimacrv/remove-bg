@@ -6,6 +6,7 @@ from app.fs import (
     move_original,
     no_bg_output_path,
     compressed_output_path,
+    vectorized_output_path,
     list_valid_images
 )
 from app.processor import (
@@ -322,3 +323,232 @@ def main_format_avatar():
             print(f"   ↳ {e}")
 
     print("\n🎉 All avatars formatted successfully")
+
+
+def main_vectorize():
+    parser = argparse.ArgumentParser(
+        description="Convert raster images to SVG vectors (vtracer + skeleton)"
+    )
+
+    parser.add_argument(
+        "input",
+        nargs="?",
+        help="Input image path (optional, defaults to batch processing app/images/)",
+    )
+
+    parser.add_argument(
+        "-o", "--output",
+        help="Output SVG path (only when single input file is given)",
+    )
+
+    parser.add_argument(
+        "--mode",
+        choices=["outline", "centerline"],
+        default="outline",
+        help="Vectorization mode: outline (filled shapes, vtracer) or centerline (single stroke, handwriting) (default: outline)",
+    )
+
+    parser.add_argument(
+        "--colormode",
+        choices=["color", "binary"],
+        default="color",
+        help="Color mode for outline: color preserves palette, binary is B/W only (default: color)",
+    )
+
+    parser.add_argument(
+        "--preset",
+        choices=["excellent", "standard", "draft"],
+        default="excellent",
+        help="Quality preset (default: excellent)",
+    )
+
+    parser.add_argument(
+        "--hierarchical",
+        choices=["stacked", "cutout"],
+        default="stacked",
+        help="SVG stacking strategy for outline (default: stacked)",
+    )
+
+    parser.add_argument(
+        "--filter-speckle",
+        type=int,
+        help="Discard patches smaller than X px (overrides preset)",
+    )
+
+    parser.add_argument(
+        "--color-precision",
+        type=int,
+        help="Bits per channel for color (1-8, overrides preset)",
+    )
+
+    parser.add_argument(
+        "--corner-threshold",
+        type=int,
+        help="Min angle to be corner in degrees (overrides preset)",
+    )
+
+    parser.add_argument(
+        "--length-threshold",
+        type=float,
+        help="Min length for spline segment (overrides preset)",
+    )
+
+    parser.add_argument(
+        "--path-precision",
+        type=int,
+        help="Decimal precision for SVG paths (overrides preset)",
+    )
+
+    parser.add_argument(
+        "--upscale",
+        type=int,
+        default=1,
+        help="Upscale factor before tracing for higher quality on small images (default: 1)",
+    )
+
+    # Centerline specific
+    parser.add_argument(
+        "--threshold",
+        type=int,
+        help="Binarization threshold 0-255 for centerline (default: Otsu auto)",
+    )
+
+    parser.add_argument(
+        "--invert",
+        action="store_true",
+        help="Invert binary for centerline (use if stroke is white on dark)",
+    )
+
+    parser.add_argument(
+        "--stroke-width",
+        type=int,
+        default=3,
+        help="Stroke width for centerline SVG (default: 3)",
+    )
+
+    parser.add_argument(
+        "--no-preserve-original",
+        action="store_true",
+        help="Don't move originals to originals/ folder (default: moves)",
+    )
+
+    args = parser.parse_args()
+
+    from app.vectorizer import vectorize_image
+
+    base = Path(__file__).parent
+    images_dir = base / "images"
+
+    ensure_dirs(base)
+
+    # Determine input list
+    images: list[Path] = []
+    single_mode = False
+
+    if args.input:
+        p = Path(args.input)
+        if not p.is_absolute():
+            # try relative to cwd, then to base
+            if not p.exists():
+                p2 = base / p
+                if p2.exists():
+                    p = p2
+                else:
+                    p3 = Path.cwd() / args.input
+                    if p3.exists():
+                        p = p3
+        if not p.exists():
+            print(f"❌ Input not found: {args.input}")
+            return
+        if p.is_file():
+            images = [p]
+            single_mode = True
+        else:
+            # directory
+            from app.fs import SUPPORTED_EXTENSIONS
+            images = [f for f in p.iterdir() if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS]
+    else:
+        images = list_valid_images(images_dir)
+
+    if not images:
+        print("⚠️ No valid images found in app/images/ (or input path)")
+        return
+
+    print(f"🖼 Found {len(images)} image(s) for vectorization")
+    print(f"⚙ Mode: {args.mode.upper()} | Preset: {args.preset} | Color: {args.colormode if args.mode=='outline' else 'N/A (centerline)'}")
+
+    for image in images:
+        print(f"\n➡ Processing {image.name} → SVG")
+
+        try:
+            # Preserve original unless --no-preserve-original or single_mode with absolute path outside app/images
+            should_move = not args.no_preserve_original and not single_mode and image.parent == images_dir
+            if should_move:
+                original = move_original(image, base)
+            else:
+                # For single file mode, use file directly; ensure it exists
+                original = image
+                if single_mode and args.input and Path(args.input).exists():
+                    # keep as is
+                    pass
+
+            if single_mode and args.output:
+                output = Path(args.output)
+                if not output.is_absolute():
+                    output = Path.cwd() / output
+                output.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                output = vectorized_output_path(base, original.name)
+
+            # Build kwargs for vectorizer
+            if args.mode == "outline":
+                kwargs = {
+                    "colormode": args.colormode,
+                    "hierarchical": args.hierarchical,
+                    "preset": args.preset,
+                    "upscale": args.upscale,
+                }
+                if args.filter_speckle is not None:
+                    kwargs["filter_speckle"] = args.filter_speckle
+                if args.color_precision is not None:
+                    kwargs["color_precision"] = args.color_precision
+                if args.corner_threshold is not None:
+                    kwargs["corner_threshold"] = args.corner_threshold
+                if args.length_threshold is not None:
+                    kwargs["length_threshold"] = args.length_threshold
+                if args.path_precision is not None:
+                    kwargs["path_precision"] = args.path_precision
+
+                res = vectorize_image(original, output, mode="outline", **kwargs)
+            else:
+                kwargs = {
+                    "threshold": args.threshold,
+                    "invert": args.invert,
+                    "stroke_width": args.stroke_width,
+                }
+                res = vectorize_image(original, output, mode="centerline", **kwargs)
+
+            orig_kb = res.get("original_size", 0) / 1024
+            svg_kb = res.get("svg_size", 0) / 1024
+            n_paths = res.get("num_paths", res.get("num_strokes", "?"))
+
+            print(f"📦 {original.name} → {output.name}")
+            if orig_kb > 1024:
+                print(f"📊 {orig_kb/1024:.1f}MB → {svg_kb:.1f}KB | Paths: {n_paths}")
+            else:
+                print(f"📊 {orig_kb:.1f}KB → {svg_kb:.1f}KB | Paths: {n_paths}")
+            if res.get("backend") == "vtracer":
+                print(f"⚙️ Backend: vtracer | Params: {res.get('params')}")
+            else:
+                print(f"⚙️ Backend: skeleton | Strokes: {res.get('num_strokes')}")
+            print(f"✅ Saved: {output}")
+
+        except Exception as e:
+            import traceback
+            print(f"❌ Error processing {image.name}")
+            print(f"   ↳ {e}")
+            traceback.print_exc()
+
+    print("\n🎉 All images vectorized successfully")
+    if not single_mode:
+        print(f"📁 Output: {base / 'vectorized'}")

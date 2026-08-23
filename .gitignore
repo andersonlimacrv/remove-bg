@@ -54,8 +54,17 @@ app/originals/*
 app/no-bg/*
 app/compressed/*
 
+# Project runtime folders
+# ==========================
+app/images/*
+app/originals/*
+app/no-bg/*
+app/compressed/*
+app/vectorized/*
+
 # Keep folders tracked
 !app/images/.gitkeep
 !app/originals/.gitkeep
 !app/no-bg/.gitkeep
 !app/compressed/.gitkeep
+!app/vectorized/.gitkeep
