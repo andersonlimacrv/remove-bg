@@ -62,32 +62,115 @@ def _detect_has_transparency(img: Image.Image) -> bool:
     return img.mode in ("RGBA", "LA") or img.info.get("transparency") is not None
 
 
-def _prepare_tmp_image(input_path: Path, upscale: int = 1) -> Path:
+# Cor chroma-key para fundo transparente — magenta puro, improvável em logos
+_CHROMA_KEY_RGB = (255, 0, 255)
+_CHROMA_KEY_HEX = "#ff00ff"
+
+
+def _strip_chroma_key(svg_path: Path, chroma_hex: str = _CHROMA_KEY_HEX) -> int:
     """
-    Prepara imagem temporária para vtracer:
-    - Se RGBA e fundo transparente, compõe sobre branco (vtracer não lida bem com alpha).
-    - Opcional upscale para melhorar qualidade de traço pequeno (lanczos).
-    Retorna Path temporário; caller deve deletar.
+    Remove do SVG todos os <path>/<rect> com fill == chroma_hex.
+    Isso elimina o fundo que representava área transparente (magenta).
+    Retorna quantidade de elementos removidos.
+    """
+    try:
+        content = svg_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return 0
+    # normaliza para lower para matching case-insensitive, mas preserva conteúdo original via regex IGNORECASE
+    # Padrões vtracer: fill="#ff00ff", fill="#FF00FF", fill="rgb(255,0,255)", fill="rgb(255, 0, 255)"
+    chroma = chroma_hex.lstrip("#").lower()  # ff00ff
+    # Regex para capturar tag completa self-closed ou com fechamento
+    # 1) fill="#ff00ff" em qualquer ordem
+    pat_hex = re.compile(
+        rf'<(?:path|rect|circle|polygon)[^>]*fill\s*=\s*["\']#{chroma}["\'][^>]*?(?:/>|>.*?</(?:path|rect|circle|polygon)>)',
+        re.IGNORECASE | re.DOTALL,
+    )
+    pat_rgb = re.compile(
+        r'<(?:path|rect|circle|polygon)[^>]*fill\s*=\s*["\']rgb\(\s*255\s*,\s*0\s*,\s*255\s*\)["\'][^>]*?(?:/>|>.*?</(?:path|rect|circle|polygon)>)',
+        re.IGNORECASE | re.DOTALL,
+    )
+    # Também cobre rgb sem espaços: rgb(255,0,255)
+    orig_len = len(content)
+    new_content, n1 = pat_hex.subn("", content)
+    new_content, n2 = pat_rgb.subn("", new_content)
+    removed = n1 + n2
+    if removed:
+        # limpa linhas vazias duplicadas deixadas
+        new_content = re.sub(r"\n\s*\n", "\n", new_content)
+        svg_path.write_text(new_content, encoding="utf-8")
+    return removed
+
+
+def _prepare_tmp_image(
+    input_path: Path,
+    upscale: int = 1,
+    *,
+    preserve_transparency: bool = True,
+    alpha_threshold: int = 15,
+    chroma_key: tuple[int, int, int] | None = None,
+) -> tuple[Path, bool]:
+    """
+    Prepara imagem temporária para vtracer.
+
+    - Se preserve_transparency=True e imagem tem alpha, binariza alpha
+      (opção A: sem franja) e compõe sobre chroma-key (magenta) em vez de branco.
+      Bordas semi-transparentes (alpha <= threshold) viram 100% transparentes,
+      evitando halo branco/pink. O chroma será removido do SVG depois.
+    - Caso contrário, comportamento legado: compõe sobre branco.
+    - Upscale via LANCZOS antes do threshold para preservar qualidade.
+
+    Retorna (tmp_path, had_transparency)
     """
     img = Image.open(input_path)
-    # Handle transparency: composite over white for outline; for centerline we keep alpha logic elsewhere
-    if img.mode in ("RGBA", "LA"):
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        if len(img.split()) == 4:
-            bg.paste(img, mask=img.split()[3])
-        else:
-            bg.paste(img)
-        img = bg
-    elif img.mode != "RGB":
-        img = img.convert("RGB")
+    had_transparency = _detect_has_transparency(img)
 
-    if upscale != 1 and upscale > 1:
-        w, h = img.size
-        img = img.resize((w * upscale, h * upscale), Image.Resampling.LANCZOS)
+    # Decide modo
+    use_chroma = preserve_transparency and had_transparency and chroma_key is not None
+    # chroma_key padrão = magenta quando preserve_transparency
+    if preserve_transparency and had_transparency and chroma_key is None:
+        chroma_key = _CHROMA_KEY_RGB
+
+    if had_transparency and preserve_transparency:
+        # Converte para RGBA para ter alpha consistente
+        img = img.convert("RGBA")
+        # Upscale ANTES do threshold para manter qualidade mas ainda binarizar depois
+        if upscale != 1 and upscale > 1:
+            w, h = img.size
+            img = img.resize((w * upscale, h * upscale), Image.Resampling.LANCZOS)
+
+        # Binariza alpha: sem franja (A)
+        r, g, b, a = img.split()
+        # threshold binário
+        # point lambda precisa retornar 0 ou 255
+        mask = a.point(lambda p: 255 if p > alpha_threshold else 0, mode="L")
+        # Cria fundo chroma ou branco
+        bg_color = chroma_key if chroma_key else (255, 255, 255)
+        bg = Image.new("RGB", img.size, bg_color)
+        # RGB original
+        rgb = Image.merge("RGB", (r, g, b))
+        bg.paste(rgb, mask=mask)
+        img = bg
+        # upscale já feito, não repete
+    else:
+        # Legado: sem preservação, compõe sobre branco com alpha blending (mantém anti-alias original)
+        if img.mode in ("RGBA", "LA"):
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            if len(img.split()) == 4:
+                bg.paste(img, mask=img.split()[3])
+            else:
+                bg.paste(img)
+            img = bg
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+
+        if upscale != 1 and upscale > 1:
+            w, h = img.size
+            img = img.resize((w * upscale, h * upscale), Image.Resampling.LANCZOS)
 
     tmp = Path(tempfile.mktemp(suffix=".png"))
     img.save(tmp, format="PNG")
-    return tmp
+    return tmp, had_transparency
 
 
 def _optimize_svg_precision(svg_content: str, precision: int) -> str:
@@ -122,6 +205,51 @@ def _get_svg_metrics(svg_path: Path, original_path: Path) -> dict:
     }
 
 
+def _dominant_color_hex(input_path: Path, alpha_threshold: int = 15) -> str | None:
+    """Retorna hex da cor dominante entre pixels opacos (alpha>threshold), ou None se vazio."""
+    try:
+        img = Image.open(input_path).convert("RGBA")
+        # coleta apenas opacos
+        pixels = list(img.getdata())
+        # filtra por alpha
+        opaque = [(r, g, b) for r, g, b, a in pixels if a > alpha_threshold]
+        if not opaque:
+            return None
+        from collections import Counter
+        cnt = Counter(opaque)
+        r, g, b = cnt.most_common(1)[0][0]
+        return f"#{r:02x}{g:02x}{b:02x}"
+    except Exception:
+        return None
+
+
+def _is_single_color_transparent(input_path: Path, alpha_threshold: int = 15) -> bool:
+    """
+    Heurística para detectar logo monocromático com transparência.
+    - Quantiza cor para 4 bits para ignorar variações JPEG/PNG leves
+    - Verifica se <=2 cores quantizadas e dominante cobre >90%
+    """
+    try:
+        img = Image.open(input_path).convert("RGBA")
+        pixels = list(img.getdata())
+        opaque = [(r, g, b) for r, g, b, a in pixels if a > alpha_threshold]
+        if not opaque:
+            return False
+        from collections import Counter
+        # quantiza 4 bits
+        quantized = [(r // 16, g // 16, b // 16) for r, g, b in opaque]
+        uniq_q = set(quantized)
+        if len(uniq_q) > 3:
+            return False
+        cnt = Counter(quantized)
+        most = cnt.most_common(1)[0][1]
+        ratio = most / len(opaque)
+        # também verifica unique exato: se muitas variações exatas mas quantizado é 2, aceita
+        return ratio > 0.90
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # OUTLINE — vtracer
 # ---------------------------------------------------------------------------
@@ -141,9 +269,13 @@ def vectorize_outline(
     splice_threshold: int | None = None,
     path_precision: int | None = None,
     upscale: int = 1,
+    preserve_transparency: bool = True,
+    alpha_threshold: int = 15,
 ) -> dict:
     """
     Vetoriza via vtracer (outline). Prioridade excelente qualidade.
+    preserve_transparency=True (padrão): binariza alpha e usa chroma-key
+    para que o SVG final fique com fundo transparente real, sem halo.
 
     Retorna dict com metrics + svg_content (str).
     """
@@ -162,7 +294,43 @@ def vectorize_outline(
     st = splice_threshold if splice_threshold is not None else p["splice_threshold"]
     pp = path_precision if path_precision is not None else p["path_precision"]
 
-    tmp = _prepare_tmp_image(input_path, upscale=upscale)
+    # Detecta caso monocromático com transparência → usa binary + recolor para fundo 100% transparente sem artefato retângulo
+    single_color = False
+    dominant_hex = None
+    if preserve_transparency:
+        try:
+            tmp_check = Image.open(input_path)
+            had = _detect_has_transparency(tmp_check)
+            if had and _is_single_color_transparent(input_path, alpha_threshold):
+                single_color = True
+                dominant_hex = _dominant_color_hex(input_path, alpha_threshold)
+                print(f"🎯 Single-color transparente detectado → binary + recolor {dominant_hex} (sem franja, fundo 100% transparente)")
+        except Exception:
+            single_color = False
+
+    if single_color:
+        # Cria tmp binário: branco onde transparente, preto onde opaco
+        img_rgba = Image.open(input_path).convert("RGBA")
+        if upscale != 1 and upscale > 1:
+            w, h = img_rgba.size
+            img_rgba = img_rgba.resize((w * upscale, h * upscale), Image.Resampling.LANCZOS)
+        r, g, b, a = img_rgba.split()
+        mask = a.point(lambda p: 255 if p > alpha_threshold else 0, mode="L")
+        bin_img = Image.new("RGB", img_rgba.size, (255, 255, 255))
+        black = Image.new("RGB", img_rgba.size, (0, 0, 0))
+        bin_img.paste(black, mask=mask)
+        tmp = Path(tempfile.mktemp(suffix=".png"))
+        bin_img.save(tmp, format="PNG")
+        had_transparency = True
+        colormode = "binary"  # força binary para pegar apenas forma
+    else:
+        tmp, had_transparency = _prepare_tmp_image(
+            input_path,
+            upscale=upscale,
+            preserve_transparency=preserve_transparency,
+            alpha_threshold=alpha_threshold,
+            chroma_key=_CHROMA_KEY_RGB if preserve_transparency else None,
+        )
     try:
         # vtracer API: convert_image_to_svg_py(input, output, colormode, hierarchical, mode, ...)
         # A assinatura completa tem muitos kwargs; passamos todos explicitamente
@@ -186,6 +354,50 @@ def vectorize_outline(
         content = output_path.read_text(encoding="utf-8", errors="ignore")
         content = _optimize_svg_precision(content, pp)
         output_path.write_text(content, encoding="utf-8")
+
+        # Se foi single-color binary, recolor preto → cor dominante
+        if single_color and dominant_hex:
+            try:
+                txt = output_path.read_text(encoding="utf-8", errors="ignore")
+                # vtracer binary usa fill="#000000" (preto)
+                import re as _re
+                new_txt, n = _re.subn(r'fill="#000000"', f'fill="{dominant_hex}"', txt, flags=_re.IGNORECASE)
+                # também cobre variações como #000, fill="black" etc (raro)
+                new_txt, n2 = _re.subn(r'fill="#000"', f'fill="{dominant_hex}"', new_txt, flags=_re.IGNORECASE)
+                new_txt, n3 = _re.subn(r'fill="black"', f'fill="{dominant_hex}"', new_txt, flags=_re.IGNORECASE)
+                if n + n2 + n3 > 0:
+                    output_path.write_text(new_txt, encoding="utf-8")
+                    print(f"🎨 Recolor: {n+n2+n3} path(s) #000000 → {dominant_hex} (cor original preservada)")
+            except Exception as e:
+                print(f"⚠️ Falha recolor: {e}")
+
+        # Se tinha transparência e usamos chroma-key (modo multi-cor), remove fundo magenta para deixar transparente real
+        if had_transparency and preserve_transparency and not single_color:
+            removed = _strip_chroma_key(output_path, _CHROMA_KEY_HEX)
+            if removed:
+                print(f"🧹 Chroma-key removido: {removed} path(s) magenta → fundo transparente preservado")
+            else:
+                # fallback: tenta remover branco caso vtracer tenha quantizado chroma para branco
+                # (não deve acontecer com color_precision=8, mas garante)
+                try:
+                    txt = output_path.read_text(encoding="utf-8", errors="ignore")
+                    # se ainda há fill="#ffffff" e é o maior path, é fundo branco
+                    # remove apenas se houver >1 path e primeiro é branco cobrindo tudo
+                    # heurística simples: remove um path branco se imagem tinha transparência
+                    import re as _re
+                    if txt.lower().count('fill="#ffffff"') >= 1 or txt.lower().count('fill="#fff"') >= 1:
+                        # remove primeiro path branco que cobre canvas (M0 0)
+                        pat_white = _re.compile(
+                            r'<path[^>]*fill\s*=\s*["\']#(?:ffffff|fff)["\'][^>]*?(?:/>|>.*?</path>)',
+                            _re.IGNORECASE | _re.DOTALL,
+                        )
+                        # remove apenas 1 ocorrência (fundo)
+                        new_txt, n = pat_white.subn("", txt, count=1)
+                        if n:
+                            output_path.write_text(new_txt, encoding="utf-8")
+                            print(f"🧹 Fallback branco removido: fundo branco → transparente")
+                except Exception:
+                    pass
 
         metrics = _get_svg_metrics(output_path, input_path)
         metrics.update({
@@ -562,6 +774,6 @@ def vectorize_image(
     else:
         # outline kwargs mapeiam para vtracer
         # filtra kwargs inválidos para outline
-        allowed = {"colormode", "hierarchical", "mode", "preset", "filter_speckle", "color_precision", "corner_threshold", "length_threshold", "splice_threshold", "path_precision", "upscale"}
+        allowed = {"colormode", "hierarchical", "mode", "preset", "filter_speckle", "color_precision", "corner_threshold", "length_threshold", "splice_threshold", "path_precision", "upscale", "preserve_transparency", "alpha_threshold"}
         fk = {k: v for k, v in kwargs.items() if k in allowed}
         return vectorize_outline(input_path, output_path, **fk)
